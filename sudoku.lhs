@@ -141,7 +141,7 @@ possible cases:
 3. Finally we get somewhere interesting: the first row has at least one item
    `x`. In this case, we have to do two things:
 
-	 a) First, we create a list with the "first" column. To do so, we append to
+   a) First, we create a list with the "first" column. To do so, we append to
       `x` the head of all the other rows `xss`.
    b) Second, we have to transpose all the other columns. To do so, we create
       a new matrix by removing the first element from the first row (i.e. we
