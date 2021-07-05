@@ -26,15 +26,26 @@ Let's start by defining the types we'll use throughout the program.
 > type Value = Char
 
 
+=================
+BASIC DEFINITIONS
+=================
+
+> boxsize :: Int
+> boxsize = 3
+>
+> values :: [Value]
+> values = ['1'..'9']
+>
+> single :: [a] -> Bool
+> single [_] = True
+> single _   = False
+
+
 ===============
 SUDOKU EXAMPLES
 ===============
 
-This first puzzle is super easy. It can be solved by the first solver we'll be
-implementing.
-
-> grid :: Grid
-> grid = ["1234","5678","9abc","defg"]
+Solvable only using the basic rules:
 
 > easy :: Grid
 > easy = ["2....1.38",
@@ -47,6 +58,61 @@ implementing.
 >         ".5..69784",
 >         "4..25...."]
 
+First gentle example from sudoku.org.uk:
+
+> gentle :: Grid
+> gentle = [".1.42...5",
+>           "..2.71.39",
+>           ".......4.",
+>           "2.71....6",
+>           "....4....",
+>           "6....74.3",
+>           ".7.......",
+>           "12.73.5..",
+>           "3...82.7."]
+
+> diabolical :: Grid
+> diabolical = [".9.7..86.",
+>               ".31..5.2.",
+>               "8.6......",
+>               "..7.5...6",
+>               "...3.7...",
+>               "5...1.7..",
+>               "......1.9",
+>               ".2.6..35.",
+>               ".54..8.7."]
+
+First "unsolvable" (requires backtracking) example:
+
+> unsolvable :: Grid
+> unsolvable = ["1..9.7..3",
+>               ".8.....7.",
+>               "..9...6..",
+>               "..72.94..",
+>               "41.....95",
+>               "..85.43..",
+>               "..3...7..",
+>               ".5.....4.",
+>               "2..8.6..9"]
+
+Minimal sized grid (17 values) with a unique solution:
+
+> minimal :: Grid
+> minimal = [".98......",
+>            "....7....",
+>            "....15...",
+>            "1........",
+>            "...2....9",
+>            "...9.6.82",
+>            ".......3.",
+>            "5.1......",
+>            "...4...2."]
+
+Empty grid:
+
+> blank :: Grid
+> blank = replicate n (replicate n '.')
+>         where n = boxsize ^ 2
 
 ================
 HELPER FUNCTIONS
@@ -90,14 +156,7 @@ regular Sudoku is a 9 by 9 matrix, which means its side is `3^2 = 9`.
 >          where
 >              pack   = split . map split
 >              unpack = map concat . concat
->              split  = chunksOf (boxSize m)
-
-
-This function returns the box size of a given Sudoku matrix. For instance, in a
-regular 9x9 Sudoku matrix, its box size is 3.
-
-> boxSize :: Matrix a -> Int
-> boxSize = floor . sqrt . fromIntegral . length . head
+>              split  = chunksOf boxsize
 
 
 Notice that all these functions have an interesting property: composing each
@@ -123,6 +182,89 @@ where `nodups` is defined as:
 > nodups []     = True
 > nodups (x:xs) = not (x `elem` xs) && nodups xs
 
+
+
+=======
+SOLVERS
+=======
+
+Let's now implement the different Sudoku solvers presented by Graham in his
+course.
+
+
+1. Simplest Sudoku solver possible
+----------------------------------
+
+The first solver is extremely simple and naive:
+
+> solve1 :: Grid -> [Grid]
+> solve1 = filter valid . combinations . choices
+
+
+Let's take a closer look at each helper function. `choices` simply "fills the
+gaps" with a list of all possible numbers (1 to 9). Its result is a matrix
+where each cell is either the list of numbers 1 to 9 (if the cell was empty) or
+a list with a single number (i.e. the number that was already there
+originally).
+
+> type Choices = [Value]
+>
+> choices :: Grid -> Matrix Choices
+> choices = map (map choice)
+>           where
+>               choice '.' = values
+>               choice v   = [v]
+
+
+`combinations` generates all the possible Grids by "flattening" the Choices
+into a single value.
+
+> combinations :: Matrix [a] -> [Matrix a]
+> combinations = cp . map cp
+
+where `cp` is a helper function that implements the cartesian product:
+
+> cp :: [[a]] -> [[a]]
+> cp []       = [[]]
+> cp (xs:xss) = [ h : ts | h <- xs, ts <- cp xss ]
+
+
+2. Generating combinations cleverly
+-----------------------------------
+
+The previous solver doesn't work because, well, the number of possible
+combinations we're generating is huge. So let's tweak the solver in a
+way such that it's able to _prune_ invalid Choices:
+
+> solve2 :: Grid -> [Grid]
+> solve2 = filter valid . combinations . fix prune . choices
+
+
+The previous solver uses two new helper functions: `fix` and `prune`.
+`fix` is quite simple: it repeats the same function over and over again
+until the result it gets is equal to its input:
+
+> fix :: Eq a => (a -> a) -> a -> a
+> fix f x = if x == x' then x else fix f x'
+>           where x' = f x
+
+
+`prune`, on the other hand, gets rid of choices that are already set in
+our matrix. The idea is also quite simple: we have to remove single
+values from a list of multiple choices when said value appears in the
+same row, column, or box as the cell with multiple choices:
+
+> prune :: Matrix Choices -> Matrix Choices
+> prune = pruneBy rows . pruneBy cols . pruneBy boxs
+>         where
+>             pruneBy f = f . map reduce . f
+>
+> reduce :: Row Choices -> Row Choices
+> reduce rows = [ row `without` singles | row <- rows ]
+>               where singles = concat . filter single $ rows
+>
+> without :: Choices -> Choices -> Choices
+> a `without` b = if single a then a else [ x | x <- a, not (x `elem` b) ]
 
 
 ===========================================
@@ -180,7 +322,6 @@ The following function will beautifully print a Sudoku on the terminal.
 > sudoku :: Grid -> IO ()
 > sudoku g = mapM_ putStrLn lines
 >        where
->           bs     = boxSize g
->           rowSep = intercalate "┼" $ replicate bs (replicate bs '─')
->           rows   = map (intercalate "│" . chunksOf bs) g
->           lines  = intercalate [rowSep] . chunksOf bs $ rows
+>           rowSep = intercalate "┼" $ replicate boxsize (replicate boxsize '─')
+>           rows   = map (intercalate "│" . chunksOf boxsize) g
+>           lines  = intercalate [rowSep] . chunksOf boxsize $ rows
