@@ -198,7 +198,7 @@ course.
 The first solver is extremely simple and naive:
 
 > solve1 :: Grid -> [Grid]
-> solve1 = filter valid . combinations . choices
+> solve1 = filter valid . collapse . choices
 
 
 Let's take a closer look at each helper function. `choices` simply "fills the
@@ -216,11 +216,11 @@ originally).
 >               choice v   = [v]
 
 
-`combinations` generates all the possible Grids by "flattening" the Choices
-into a single value.
+`collapse` generates all the possible Grids by "flattening" the Choices into a
+single value.
 
-> combinations :: Matrix [a] -> [Matrix a]
-> combinations = cp . map cp
+> collapse :: Matrix [a] -> [Matrix a]
+> collapse = cp . map cp
 
 where `cp` is a helper function that implements the cartesian product:
 
@@ -229,15 +229,15 @@ where `cp` is a helper function that implements the cartesian product:
 > cp (xs:xss) = [ h : ts | h <- xs, ts <- cp xss ]
 
 
-2. Generating combinations cleverly
------------------------------------
+2. Pruning choices before collapsing
+------------------------------------
 
 The previous solver doesn't work because, well, the number of possible
 combinations we're generating is huge. So let's tweak the solver in a
 way such that it's able to _prune_ invalid Choices:
 
 > solve2 :: Grid -> [Grid]
-> solve2 = filter valid . combinations . fix prune . choices
+> solve2 = filter valid . collapse . fix prune . choices
 
 
 The previous solver uses two new helper functions: `fix` and `prune`.
@@ -261,10 +261,87 @@ same row, column, or box as the cell with multiple choices:
 >
 > reduce :: Row Choices -> Row Choices
 > reduce rows = [ row `without` singles | row <- rows ]
->               where singles = concat . filter single $ rows
+>               where singles = concat (filter single rows)
 >
 > without :: Choices -> Choices -> Choices
 > a `without` b = if single a then a else [ x | x <- a, not (x `elem` b) ]
+
+
+3. Expanding choices one at a time
+----------------------------------
+
+The problem with the previous algorithm is that it generates the cartesian
+product of all choices. This results in an explosion of possible grids, most
+of which won't be valid. To overcome this issue, the idea is to expand the
+multiple choices one at each step and disregard any (partial) grid that we
+already know that will fail.
+
+Instead of collapsing all the choices and filtering out the invalid ones,
+this final solver only explores the search space of grids that look
+promising:
+
+> solve3 :: Grid -> [Grid]
+> solve3 = search . prune . choices
+
+
+Let's take a look at `search`:
+
+> search :: Matrix Choices -> [Grid]
+> search m | blocked m     = []
+>          | collapsable m = collapse m
+>          | otherwise     = [ g | m' <- expand m,
+>                                  g  <- search (prune m') ]
+
+As you can see, `search` defines three possible scenarios:
+
+1. If the current (partially-expanded) matrix can't lead to a valid Sudoku
+solution, we abort the search and return the empty list.
+
+2. If the current matrix doesn't have any multiple choices, we've found a
+solution and we can collapse it.
+
+3. Otherwise, we expand the first cell and keep searching.
+
+
+Let's now define the three helper functions `search` uses.
+
+`collapsable` checks if a matrix of choices contains single-valued choices
+only. If it does, the matrix can be converted into a final Sudok Grid:
+
+> collapsable :: Matrix Choices -> Bool
+> collapsable = all (all single)
+
+
+`expand` assumes the matrix of choices has at least one multiple-choice
+cell and it simply expands it into _n_ matrices of choices:
+
+> expand :: Matrix Choices -> [Matrix Choices]
+> expand m = [ brs ++ [ bcs ++ [c] : acs ] ++ ars | c <- choices ]
+>            where
+>                multi              = not . single
+>                (brs, row:ars)     = break (any multi) m
+>                (bcs, choices:acs) = break multi row
+
+
+Finally, `blocked` checks if a matrix of choices can't produce a final Sudoku
+Grid and, therefore, it doesn't deserve further expanding. A matrix of choices
+won't result in a successful Sudoku Grid if it contains empty cells or if
+single options aren't consistent (as defined in the Sudoku game):
+
+> blocked :: Matrix Choices -> Bool
+> blocked m = incomplete || invalid
+>             where
+>                 incomplete = any (any null) m
+>                 invalid    = any inconsistent (rows m) ||
+>                              any inconsistent (cols m) ||
+>                              any inconsistent (boxs m)
+
+
+where `inconsistent` looks for duplicate single choices on a row:
+
+> inconsistent :: Row Choices -> Bool
+> inconsistent = dups . concat . filter single
+>                where dups = not . nodups
 
 
 ===========================================
