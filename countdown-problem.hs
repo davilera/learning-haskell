@@ -13,7 +13,7 @@ goal = 765
 
 solve :: [Int] -> Int -> [Expr]
 solve ns n = [ e | e <- exprs ns,
-                   eval e == [n] ]
+                   eval e == Just n ]
 
 
 exprs :: [Int] -> [Expr]
@@ -56,11 +56,14 @@ combine :: Expr -> Expr -> [Expr]
 combine l r = [ App op l r | op <- [ Add, Sub, Mul, Div ] ]
 
 
-eval :: Expr -> [Int]
-eval (Val x)       = [x]
-eval (App op l r ) = [ apply op x y | x <- eval l,
-                                      y <- eval r,
-                                      valid op x y ]
+eval :: Expr -> Maybe Int
+eval (Val x)       = Just x
+eval (App op l r ) = if isTrue $ pure (valid op) <*> x <*> y
+                     then pure (apply op)<*> x <*> y
+                     else Nothing
+                     where x      = eval l
+                           y      = eval r
+                           isTrue = (== Just True)
 
 
 apply :: Op -> Int -> Int -> Int
@@ -74,7 +77,7 @@ valid :: Op -> Int -> Int -> Bool
 valid Add x y = True
 valid Sub x y = x > y
 valid Mul x y = True
-valid Div x y = x `mod` y == 0
+valid Div x y = x `mod` y == 0 && y > 0
 
 
 main :: IO ()
