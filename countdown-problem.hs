@@ -74,9 +74,9 @@ apply Div x y = x `div` y
 
 
 valid :: Op -> Int -> Int -> Bool
-valid Add x y = True
+valid Add x y = x <= y
 valid Sub x y = x > y
-valid Mul x y = True
+valid Mul x y = x <= y
 valid Div x y = x `mod` y == 0 && y > 0
 
 
