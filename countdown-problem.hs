@@ -12,18 +12,18 @@ goal = 765
 
 
 solve :: [Int] -> Int -> [Expr]
-solve ns n = [ e | e <- exprs ns,
-                   eval e == Just n ]
+solve ns n = [ e | cs <- choices ns
+                 , e <- exprs cs
+                 , eval e == Just n ]
 
 
 exprs :: [Int] -> [Expr]
 exprs []  = []
 exprs [n] = [Val n]
-exprs ns = [ e | cs <- choices ns,
-                 (ls, rs) <- splits cs,
-                 l <- exprs ls,
-                 r <- exprs rs,
-                 e <- combine l r ]
+exprs ns = [ e | (ls, rs) <- splits ns
+               , l <- exprs ls
+               , r <- exprs rs
+               , e <- combine l r ]
 
 
 splits :: [a] -> [([a], [a])]
@@ -80,5 +80,31 @@ valid Mul x y = x <= y
 valid Div x y = x `mod` y == 0 && y > 0
 
 
+-- Combines generation and evaluation
+
+type Result = (Expr, Int)
+
+
+results :: [Int] -> [Result]
+results []  = []
+results [x] = [(Val x, x) | x > 0]
+results xs  = [ res | (ls, rs) <- splits xs
+                    , l <- results ls
+                    , r <- results rs
+                    , res <- combine' l r ]
+
+
+combine' :: Result -> Result -> [Result]
+combine' (l,x) (r,y) = [ (App op l r, apply op x y) | op <- [ Add, Sub, Mul, Div ]
+                                                    , valid op x y ]
+
+
+solve' :: [Int] -> Int -> [Expr]
+solve' ns n = [ e | cs <- choices ns
+                  , (e, v) <- results cs
+                  , v == n ]
+
+
 main :: IO ()
-main = undefined
+main = do
+    putStr . show $ solve' numbers goal
